@@ -7,6 +7,7 @@
     "native-ui.lua",
     "model.lua",
     "config.ini",
-    "icon.png"
+    "icon.png",
+    "watch-icon.png"
   ]
 }
