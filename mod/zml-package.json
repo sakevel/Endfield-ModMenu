@@ -1,0 +1,12 @@
+{
+  "id": "mod-menu",
+  "files": [
+    "ModMenu.dll",
+    "mod.ini",
+    "mod-menu.lua",
+    "native-ui.lua",
+    "model.lua",
+    "config.ini",
+    "icon.png"
+  ]
+}
