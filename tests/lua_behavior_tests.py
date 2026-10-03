@@ -1,10 +1,10 @@
 """Lua/API/native-adapter behavioral checks; not client/visual acceptance."""
 import argparse, base64, pathlib, subprocess, sys
-p=argparse.ArgumentParser();p.add_argument('--lupa-dir');p.add_argument('--services',required=True);args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--lupa-dir');p.add_argument('--services',required=True);p.add_argument('--extra-mod',action='append',default=[]);args=p.parse_args()
 if args.lupa_dir:sys.path.insert(0,args.lupa_dir)
 from lupa.lua54 import LuaRuntime
 root=pathlib.Path(__file__).resolve().parents[1]
-server=subprocess.Popen([str(pathlib.Path(args.services).resolve()),'--serve',str(root/'mod/mod.ini')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+server=subprocess.Popen([str(pathlib.Path(args.services).resolve()),'--serve',str(root/'mod/mod.ini'),*args.extra_mod],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 def route(_, path):
     server.stdin.write((path+'\n').encode());server.stdin.flush()
     length=int(server.stdout.readline());data=server.stdout.read(length)
@@ -15,8 +15,11 @@ try:
     lua.globals().native_route=route
     lua.execute('loadstring=load; LuaManagerInst={LoadLua=function(self,p)return native_route(self,p)end}')
     api=lua.execute(route(None,'ZML/Api'))
+    lua.globals().expected_mods=3+len(args.extra_mod)
     lua.execute('''
-        assert(#ZML.mods()==2 and ZML.mod('disabled')==nil)
+        assert(#ZML.mods()==expected_mods and ZML.mod('disabled')==nil)
+        assert(ZML.mod('demo').config_menu=='standard' and ZML.config_entry('demo')==nil)
+        assert(ZML.mod('custom-demo').config_menu=='custom')
         local first=ZML.mods();first[1].name='modified';assert(ZML.mods()[1].name~='modified')
         local v=ZML.get('demo');v.enabled='false';assert(ZML.get('demo').enabled=='true')
         local events=0
@@ -26,7 +29,7 @@ try:
         assert(not ZML.set('demo','amount',3));assert(events==0)
         assert(ZML.set('demo','amount',4));assert(events==1);unsub()
         assert(ZML.set('demo','amount',2));assert(events==1)
-        assert(ZML.config_entry('demo').api==1 and ZML.config_entry('demo')==ZML.config_entry('demo'))
+        assert(ZML.config_entry('custom-demo').api==1 and ZML.config_entry('custom-demo')==ZML.config_entry('custom-demo'))
         assert(ZML.config_entry('mod-menu')==nil)
         assert(ZML.report('mod-menu','page_open') and not ZML.report('mod-menu','../../private'))
     ''')
@@ -42,7 +45,7 @@ try:
     lua.execute('''
         local m=TestModel;local mods=ZML.mods()
         assert(#m.filter(mods,'测试','全部')==1 and #m.filter(mods,'','配置')==1)
-        local page,index,count=m.page(mods,99,1);assert(#page==1 and index==2 and count==2)
+        local page,index,count=m.page(mods,99,1);assert(#page==1 and index==expected_mods and count==expected_mods)
         assert(m.next_value({type='number',min=0,max=10,step=2,default='2'},'10',1)=='10')
         assert(m.next_value({type='bool'},'true',1)=='false')
         assert(m.theme(ZML.mod('mod-menu').values).accent==nil and #ZML.mod('mod-menu').config.fields==4)
@@ -58,7 +61,7 @@ try:
     mocked=main.replace('__ZML_MODEL__','(function()\n'+model+'\nend)()').replace('__ZML_NATIVE__','function()return MockNative end')
     lua.execute(mocked)
     assert lua.globals().ZMLModMenu.state=='controller_loaded',lua.globals().ZMLModMenu.error
-    lua.execute('mountMinimal(); verifyConfig(); verifyBrowser()')
+    lua.execute('mountMinimal(); verifyConfig(); verifyBrowser(); if ZML.mod("uid-mask") then verifyUidConfig() end')
     print('PASS: assembled Lua54 syntax, live native services/API, model, native panel isolation/cache/style, config controls/save/reset/back, browser search/select/back')
 finally:
     server.stdin.close()

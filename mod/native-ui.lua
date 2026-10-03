@@ -67,7 +67,7 @@ return function(api, theme, report)
     function N.ensureAsset(info)
         -- Preload a native asset into OUR panel's cache slot only. UIManager then
         -- owns instantiation, LuaPanel, camera, input, sorting, animation and LRU.
-        -- Never rename/mutate a native panel config or override its asset resolver.
+        -- Preload into panel cache
         local manager = UIManager
         if manager.m_panel2Handle[info.id] then return end
         local path = manager:_GetPanelAssetPathAndType(info.source)
@@ -86,7 +86,7 @@ return function(api, theme, report)
             if root.titleTxt then N.label(root.titleTxt, title) end
         end
         -- GameSetting's decorative title isn't a root LuaReference field.
-        -- Only replace this instance's localized title; never touch the asset.
+        -- Replace instance title
         local labels = view.gameObject:GetComponentsInChildren(typeof(CS.TMPro.TMP_Text), true)
         for i = 0, labels.Length - 1 do
             local label = labels[i]
@@ -94,7 +94,7 @@ return function(api, theme, report)
         end
     end
     function N.browserHeader(ctrl)
-        -- The visible inbox heading is NOT listTitleTxt. Hide its entire native
+        -- Hide visible inbox heading
         -- section (including fraction/decorations), retaining the section geometry.
         local title = ctrl.view.listTitleTxt.rectTransform
         local header = title.parent.parent
@@ -105,7 +105,7 @@ return function(api, theme, report)
     end
     function N.cleanSettingsFooter(view)
         -- GameSetting's Video state localizes TipsText to the graphics-reset
-        -- hint. This is not a Mod action; hide only our prefab instance's hint.
+        -- Hide graphics reset hint
         local labels = view.bottomNode.gameObject:GetComponentsInChildren(typeof(CS.TMPro.TMP_Text), true)
         for i = 0, labels.Length - 1 do
             if labels[i].gameObject.name == "TipsText" then hide(labels[i]) end
@@ -126,6 +126,9 @@ return function(api, theme, report)
             local label = labels[i]; local base = style.fonts[label]
             if not base then base = label.fontSize; style.fonts[label] = base end
             label.fontSize = base * t.scale
+        end
+        for input, base in pairs(style.inputs or {}) do
+            if exists(input) then input.pointSize = base * t.scale else style.inputs[input] = nil end
         end
     end
     function N.dropdown(view, cell, control)
@@ -165,18 +168,18 @@ return function(api, theme, report)
     end
     function N.metadataIcon(image, icon)
         image.sprite = icon.sprite
-        image.color = U.Color(1, 1, 1, 1) -- Don't multiply the authored gray/white/yellow palette.
+        image.color = U.Color(1, 1, 1, 1) -- Set default white tint
         image.preserveAspect = true
     end
     function N.watchIcon(view, item)
-        -- Only the cloned ESC button is passed here. Keep native icon geometry.
+        -- Retain native icon geometry
         if not exists(view.icon) then return false end
         if not item then hide(view.icon); return false end
         if N.watchSprite == nil then N.watchSprite = decodeIcon(watchData) end
         local icon = N.watchSprite
         if not icon then hide(view.icon); return false end
         view.icon.sprite = icon.sprite
-        view.icon.color = U.Color(49 / 255, 49 / 255, 49 / 255, 1) -- Exact sRGB #313131.
+        view.icon.color = U.Color(49 / 255, 49 / 255, 49 / 255, 1)
         view.icon.preserveAspect, view.icon.raycastTarget = true, false
         view.icon.gameObject:SetActive(true)
         return true
@@ -194,7 +197,7 @@ return function(api, theme, report)
         end
         return state.searchTemplate, state.inputTemplate
     end
-    function N.input(ctrl, parent, value, hint, x, y, w, commit, limit)
+    function N.search(ctrl, parent, value, hint, x, y, w, commit, limit)
         -- Retain SearchNode: its icon, background and input are one native group.
         -- Cloning InputField alone leaves a 164-unit decoration/gutter mismatch.
         local search, template = N.searchTemplate(ctrl)
@@ -219,17 +222,97 @@ return function(api, theme, report)
         end)
         return component, object
     end
+    function N.input(ctrl, parent, value, hint, x, y, w, commit, limit, layout)
+        -- Settings has no text editor. Borrow only WikiSearch's input behavior,
+        -- not SearchNode or its icon/gutter. Present it on the native settings pill.
+        local _, template = N.searchTemplate(ctrl)
+        local setting = assert(ctrl.view.settingItemControls.buttonSetting, "Settings input surface unavailable")
+        local images = setting.gameObject:GetComponentsInChildren(typeof(U.UI.Image), true)
+        local surface
+        for i = 0, images.Length - 1 do
+            if images[i].gameObject.name == "NormalBG" then
+                assert(not surface, "Settings input surface ambiguous"); surface = images[i]
+            end
+        end
+        assert(surface and exists(surface.sprite) and surface.transform.childCount == 0,
+            "Settings input surface contract changed")
+        local text = assert(setting.buttonText, "Settings input typography unavailable")
+        local baseSize = ctrl.zml.styles.fonts[text] or text.fontSize
+        local rect = N.node(parent, "ZML.SettingsInput", x, y, w, 64)
+        if layout then
+            -- Position setting cell relative to native row layout
+            rect.anchorMin, rect.anchorMax, rect.pivot = layout.anchorMin, layout.anchorMax, layout.pivot
+            rect.sizeDelta, rect.localScale = layout.sizeDelta, layout.localScale
+            rect.anchoredPosition = U.Vector2.zero
+        end
+        local object = rect.gameObject
+        local ok, component = xpcall(function()
+            local editor = U.Object.Instantiate(template.gameObject, rect, false)
+            editor.name = "ZML.SettingsEditor"; editor:SetActive(true)
+            local input = assert(editor:GetComponent(template:GetType()), "Native input type mismatch")
+            -- Hide background images while preserving text and viewport
+            local oldImages = editor:GetComponentsInChildren(typeof(U.UI.Image), true)
+            for i = 0, oldImages.Length - 1 do oldImages[i].enabled = false; oldImages[i].raycastTarget = false end
+            local background = U.Object.Instantiate(surface.gameObject, rect, false)
+            background.name = "ZML.SettingsInputBackground"; background:SetActive(true)
+            background.transform:SetAsFirstSibling()
+            local image = assert(background:GetComponent(typeof(U.UI.Image)), "Settings input image missing")
+            image.enabled, image.raycastTarget = true, true
+            -- Retain native sprite and 9-slice styling
+            input.targetGraphic, input.colors = image, setting.button.colors
+            input.transition = U.UI.Selectable.Transition.ColorTint
+            local function stretch(r, inset)
+                r.anchorMin, r.anchorMax, r.pivot = U.Vector2(0, 0), U.Vector2(1, 1), U.Vector2(0.5, 0.5)
+                r.anchoredPosition, r.sizeDelta, r.localScale = U.Vector2.zero, U.Vector2(-inset, 0), U.Vector3.one
+            end
+            stretch(background.transform, 0); stretch(editor.transform, 0)
+            stretch(assert(input.textViewport, "Native input viewport missing"), 40)
+            local function typography(label)
+                label.font, label.fontSize, label.color = text.font, baseSize * theme().scale, text.color
+                label.richText, label.enableAutoSizing = false, false
+                label.alignment = CS.TMPro.TextAlignmentOptions.Left
+                stretch(label.rectTransform, 0)
+                ctrl.zml.styles.fonts[label] = baseSize
+            end
+            input.pointSize, input.richText = baseSize * theme().scale, false
+            typography(assert(input.textComponent, "Native input text missing"))
+            if input.placeholder then
+                local placeholder = input.placeholder:GetComponent(typeof(CS.TMPro.TMP_Text))
+                if placeholder then typography(placeholder); N.label(placeholder, hint) end
+            end
+            input.onValueChanged:RemoveAllListeners(); input.onEndEdit:RemoveAllListeners(); input.onSubmit:RemoveAllListeners()
+            input.onFocused:RemoveAllListeners()
+            input.characterLimit, input.text = limit or 128, value or ""
+            input.onEndEdit:AddListener(function(v)
+                local saved, err = xpcall(function() commit(v) end, debug.traceback)
+                if not saved then report("input_error", err) end
+            end)
+            local transforms = object:GetComponentsInChildren(typeof(U.Transform), true)
+            for i = 0, transforms.Length - 1 do transforms[i].gameObject.layer = parent.gameObject.layer end
+            ctrl.zml.styles.inputs = ctrl.zml.styles.inputs or {}
+            ctrl.zml.styles.inputs[input] = baseSize
+            return input
+        end, debug.traceback)
+        if not ok then U.Object.DestroyImmediate(object); error(component) end
+        return component, object
+    end
+    function N.settingInput(ctrl, parent, value, hint, commit, limit)
+        -- Align row dimensions with settings pill layout
+        local setting = assert(ctrl.view.settingItemControls.toggleSetting, "Settings input layout unavailable")
+        local layout = setting.gameObject.transform
+        assert(layout.anchorMin and layout.anchorMax and layout.pivot and layout.sizeDelta and layout.localScale,
+            "Settings input layout contract changed")
+        return N.input(ctrl, parent, value, hint, 0, 0, 0, commit, limit, layout)
+    end
     function N.resizeInput(object, width)
-        -- Native panel layout is not ready in OnCreate. Resize after its first
-        -- layout pass, rather than freezing the input at the minimum width.
+        -- Defer input width adjustment until initial layout completes
         if exists(object) and width > 164 then
             local size = object.transform.sizeDelta
             object.transform.sizeDelta = U.Vector2(width, size.y)
         end
     end
     function N.textWidth(text, size)
-        -- Conservative glyph estimate complements TMP's delayed preferred size.
-        -- UTF-8 continuation bytes do not count; wide glyphs get a full em.
+        -- Estimate label width based on text length
         local width = 0
         for i = 1, #text do
             local b = text:byte(i)
@@ -239,8 +322,7 @@ return function(api, theme, report)
         return width
     end
     function N.badges(ctrl, cache, parent, entries, x, y, width, height)
-        -- Freshly verified native Gem tag widget: framed name + state controller.
-        -- We use presentation only, never its inventory/controller logic.
+        -- Gem tag presentation badge
         if not exists(ctrl.zml.badgeTemplate) then
             local asset = ctrl:LoadGameObject("Assets/Beyond/DynamicAssets/Gameplay/UI/Prefabs/WeaponInfo/Widget/GemCustomizationBoxTagCell.prefab")
             assert(exists(asset), "Native metadata badge unavailable")
@@ -253,7 +335,7 @@ return function(api, theme, report)
                 local view, object = N.clone(ctrl.zml.badgeTemplate, parent, "ZML.MetadataBadge", true)
                 N.requireView(view, {"name", "stateController"})
                 badge = {view=view, object=object, color=view.name.color}; cache[index] = badge
-                -- A badge is information, not an inert-looking clickable button.
+                -- Tag badge styling
                 local buttons = object:GetComponentsInChildren(typeof(U.UI.Button), true)
                 for i = 0, buttons.Length - 1 do buttons[i].onClick:RemoveAllListeners(); buttons[i].enabled = false end
                 local graphics = object:GetComponentsInChildren(typeof(U.UI.Graphic), true)
