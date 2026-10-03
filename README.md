@@ -38,4 +38,4 @@
 ..\Endfield-ModLoader\tools\install-mod.ps1 -ModPackage .\build\package\Release\mod-menu
 ```
 
-用户的个性化配置保存在 `%LOCALAPPDATA%\ZML\mods\mod-menu\config.ini`。
+用户的个性化配置保存在 `%LOCALAPPDATA%\EndfieldModLoader\mods\mod-menu\config.ini`。

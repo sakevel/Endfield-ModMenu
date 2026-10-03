@@ -1,4 +1,4 @@
--- Independent mod-menu: native Mail browser + native GameSetting config panels.
+-- ModMenu: Mail browser and GameSetting configuration panels.
 do
     if not _G.ZMLModMenu then
         local mod = { mount = function() end, phase = nil, active = nil, browser = nil, config = nil }
@@ -76,16 +76,14 @@ do
                 Native.label(v.mailName, item.name)
                 Native.label(v.senderNameTxt, item.authors ~= "" and item.authors or "未提供作者")
                 hide(v.sendTimeTxt)
-                -- Required content/actions first, so optional metadata never leaves
-                -- the Mail prefab's original receive-attachment button on screen.
+                -- Configure mail content layout
                 Native.label(v.contentTxt, item.description ~= "" and item.description or "此模组未提供简介。")
                 local configurable = item.config_menu ~= "none"
                 v.getBtn.gameObject:SetActive(true)
                 Native.buttonLabel(v.getBtn, configurable and "模组配置" or "无配置菜单")
                 Native.bind(v.getBtn, function() openConfig(self, item.id) end, configurable)
                 s.detailBadges = s.detailBadges or {}
-                -- senderNode is a wrapped Lua node, NOT a RectTransform. The
-                -- sendTimeTxt's actual parent is the native metadata row rect.
+                -- Retrieve sender node parent transform
                 local sender = v.sendTimeTxt.rectTransform.parent
                 Native.badges(self, s.detailBadges, sender, {
                     {text=item.version ~= "" and ("v" .. item.version) or "版本未声明", full=true},
@@ -113,9 +111,7 @@ do
                 if cell.zmlBg then
                     if selected then cell.zmlBg:PlayInAnimation() else cell.zmlBg:PlayOutAnimation() end
                 end
-                -- Native row has a second line at ExpireTime (168,-92), below
-                -- Title (167,-52). Replace it with framed version/tag widgets;
-                -- preserve the original virtual-list height and avatar geometry.
+                -- Position version and tag badges in row metadata area
                 cell.zmlBadges = cell.zmlBadges or {}
                 local entries = {{text=item.version ~= "" and ("v" .. item.version) or "版本未声明", full=true}}
                 if theme().show_tags then for _, tag in ipairs(item.tags) do entries[#entries+1] = {text=tag} end end
@@ -176,8 +172,7 @@ do
                         for i, tag in ipairs(tags) do if tag == s.tag then index = i end end
                         s.tag = tags[index % #tags + 1]; refresh(self, renderBrowser)
                     end)
-                    -- Preserve the Mail shell, list geometry and all its scroll masks.
-                    -- The extra search field is itself WikiSearch's native input control.
+                    -- Retain Mail panel shell and scroll list geometry
                     local header = Native.browserHeader(self)
                     s.search, s.searchRoot = Native.search(self, header, "", "搜索模组", 40, 0,
                         math.max(220, v.mailList.transform.rect.width - 80), function(value)
@@ -191,8 +186,7 @@ do
                 mod.active = self
                 local ok, err = xpcall(function() renderBrowser(self) end, debug.traceback)
                 if ok then report("page_open") else failPage(self, "page_error", err) end
-                -- UIManager performs the prefab layout after OnCreate. Fit the
-                -- complete native search group to the now-real column width.
+                -- Adjust search bar layout to panel column width
                 self:_StartCoroutine(function()
                     coroutine.step()
                     if self.m_isClosed then return end
@@ -248,7 +242,7 @@ do
                         coroutine.step(); if not self.m_isClosed and self.zml.item == item.id then control.dropdown:Refresh(#field.options, chosen - 1, false) end
                     end)
                 else
-                    -- String fields borrow native input behavior with a settings-style pill surface.
+                    -- String field with native settings pill surface
                     hide(control.buttonIcon); hide(control.button)
                     local component, root = Native.settingInput(self, cell.view.controlNode, value, field.label,
                         function(v) save(self, item, field, v) end, field.max_length)
@@ -288,11 +282,39 @@ do
             local function complex(self, item)
                 local s, v = self.zml, self.view
                 local entry, err = api.config_entry(item.id); assert(entry, err)
-                local width = math.max(600, v.viewContent.rect.width)
-                local root = Native.node(v.viewContent, "ZML.CustomConfig", 0, 0, width, 700); s.customRoot = root
+                assert(entry.presentation == nil or entry.presentation == "full", "Unknown custom presentation")
+                local full = entry.presentation == "full"
+                local parent = full and v.gameObject.transform or v.viewContent
+                if full then U.Canvas.ForceUpdateCanvases() end
+                local width = full and parent.rect.width or math.max(600, parent.rect.width)
+                local height = full and parent.rect.height or 700
+                assert(width > 0 and height > 0, "Custom panel layout is not ready")
+                local hidden = {}
+                local function restoreShell()
+                    for _, child in ipairs(hidden) do
+                        if Native.exists(child.object) then child.object:SetActive(child.active) end
+                    end
+                    hidden = {}; s.fullPresentation = nil
+                end
+                if full then
+                    -- Hide menu shell on close
+                    for i = 0, parent.childCount - 1 do
+                        local child = parent:GetChild(i).gameObject
+                        -- Preserve input lifecycle nodes for common_back binding
+                        if child:GetComponentsInChildren(typeof(U.UI.Graphic), true).Length > 0 then
+                            hidden[#hidden + 1] = {object=child, active=child.activeSelf}
+                            child:SetActive(false)
+                        end
+                    end
+                    s.fullPresentation = true
+                end
+                local allocated, root = pcall(Native.node, parent, "ZML.CustomConfig", 0, 0, width, height)
+                if not allocated then restoreShell(); error(root) end
+                s.customRoot = root
+                root.gameObject.layer = full and v.btnClose.gameObject.layer or parent.gameObject.layer
                 local subscriptions = {}
                 local function unsubscribeAll() for _, unsubscribe in ipairs(subscriptions) do pcall(unsubscribe) end end
-                local context = { api = 1, parent = root, mod = api.mod(item.id), width = width, height = 700,
+                local context = { api = 1, parent = root, mod = api.mod(item.id), width = width, height = height, presentation = full and "full" or "embedded",
                     get = function() return api.get(item.id) end,
                     set = function(key, value) return save(self, item, {key=key}, value) end,
                     panel = function(parent, name, x, y, w, h, color)
@@ -310,9 +332,15 @@ do
                     local cleanup = entry.create(context)
                     assert(cleanup == nil or type(cleanup) == "function", "create(context) must return function or nil"); return cleanup
                 end, debug.traceback)
-                if not ok then unsubscribeAll(); U.Object.DestroyImmediate(root.gameObject); s.customRoot = nil; error(result) end
-                s.dispose = function() unsubscribeAll(); if result then result() end end
-                UIUtils.setSizeDeltaY(v.viewContent, 780)
+                if not ok then unsubscribeAll(); restoreShell(); U.Object.DestroyImmediate(root.gameObject); s.customRoot = nil; error(result) end
+                s.dispose = function()
+                    unsubscribeAll()
+                    if result then pcall(result) end
+                    -- Deactivate editor when panel is hidden
+                    if Native.exists(root) then root.gameObject:SetActive(false) end
+                    restoreShell()
+                end
+                if not full then UIUtils.setSizeDeltaY(v.viewContent, 780) end
             end
             renderConfig = function(self)
                 cleanup(self)
@@ -320,7 +348,7 @@ do
                 if s.customRoot then U.Object.DestroyImmediate(s.customRoot.gameObject); s.customRoot = nil end
                 if s.status then U.Object.DestroyImmediate(s.status.gameObject); s.status = nil end
                 s.cells:Refresh(0)
-                -- String controls are owned clones. Destroy old copies before reusing a row.
+                -- Clean up previous string control instances
                 for _, object in ipairs(s.stringInputs or {}) do if Native.exists(object) then U.Object.DestroyImmediate(object) end end
                 s.stringInputs = {}; s.height = 0
                 local item = assert(api.mod(s.item), "Selected Mod unavailable")
@@ -347,8 +375,10 @@ do
                         UIUtils.setSizeDeltaY(v.viewContent, 330); report("custom_config_error", err)
                     end
                 else schema(self, item) end
-                s.status = Native.text(self, v.viewContent, s.message ~= "" and s.message or "配置即时保存 · ESC 返回模组列表", 20,
-                    math.max(50, v.viewContent.sizeDelta.y - 70), math.max(600, v.viewContent.rect.width - 40), 55, 20)
+                if not s.fullPresentation and s.message ~= "" then
+                    s.status = Native.text(self, v.viewContent, s.message, 20,
+                        math.max(50, v.viewContent.sizeDelta.y - 70), math.max(600, v.viewContent.rect.width - 40), 55, 20)
+                end
                 Native.style(self)
             end
             Config.OnCreate = HL.Override(HL.Any) << function(self, arg)

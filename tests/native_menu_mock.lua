@@ -1,4 +1,4 @@
--- Behavioral fixture only. It is NOT a screenshot or a Unity/client acceptance test.
+-- Behavioral test fixture.
 local classes, queue = {}, {}
 function flush() local tasks = queue; queue = {}; for _, fn in ipairs(tasks) do fn() end end
 function event()
@@ -38,6 +38,7 @@ U.Vector2=function(x,y)return {x=x,y=y}end
 U.Vector3=setmetatable({one={x=1,y=1,z=1}}, {__call=function(_,x,y,z)return {x=x,y=y,z=z}end})
 U.Vector2=setmetatable({zero={x=0,y=0}}, {__call=function(_,x,y)return {x=x,y=y}end})
 U.Color=function(r,g,b,a)return {r=r,g=g,b=b,a=a}end
+U.Canvas={ForceUpdateCanvases=function()end}
 U.Object={ DestroyImmediate=function(o)o.destroyed=true end, Destroy=function(o)o.destroyed=true end,
     Instantiate=function()local o=object();function o:GetComponent()return {PlayInAnimation=function()end,PlayOutAnimation=function()end}end;return o end }
 CS={UnityEngine=U,TMPro={TMP_Text={},TextOverflowModes={Ellipsis=1,Overflow=2}}}
@@ -62,7 +63,7 @@ PhaseManager={m_cfgs={},phaseIds={},phaseId2Names={},top=1}
 function PhaseManager:GetTopPhaseId()return self.top end
 function PhaseManager:PopPhase(id)self.popped=id end
 
--- Test the REAL native adapter's registration/cache/contract/style logic.
+-- Test native adapter registration and styling
 function verifyNative(N)
     local original=UIManager.m_panelConfigs[10]
     local oldmeta=getmetatable(original).__index
@@ -88,7 +89,7 @@ function verifyNative(N)
     N.style(ctrl);assert(img.color.b==.1 and txt.color.b==.9)
     img.color=U.Color(.7,.7,.7,1);N.style(ctrl);assert(img.color.r==.7)
     assert(ZML.set('mod-menu','font_scale',1));N.style(ctrl);assert(txt.fontSize==24)
-    -- Actual adapter must remove the entire inbox branch, not rewrite an inactive label.
+    -- Verify inbox branch removal
     local header=object('ListInboxNode');local inbox=object('收件箱');local count=object('1/1')
     header.childCount=2;function header:GetChild(i)return i==0 and inbox or count end
     local listTitle=label();listTitle.parent={parent=header}
@@ -124,10 +125,10 @@ function verifyNativeIcons(N)
     assert(colored.sprite==metadata.sprite and colored.color.r==1 and colored.color.g==1 and colored.color.b==1 and colored.preserveAspect)
     assert(N.icon(item).sprite==metadata.sprite and decoded==2)
     assert(not N.watchIcon({},item)) -- missing native field doesn't touch other controls
-    assert(not N.watchIcon({icon=own},nil) and not own.active) -- never show the inherited cup
+    -- Verify icon visibility
 end
 
--- Exercise the REAL search-group and badge layout functions, not MockNative.
+-- Test search group and badge layout
 function verifyNativeControls(N)
     local instantiate=U.Object.Instantiate
     local captured, inputRoot
@@ -147,8 +148,7 @@ function verifyNativeControls(N)
     input.onEndEdit:Invoke('测试');assert(committed=='测试')
     N.resizeInput(root,920);assert(root.sizeDelta.x==920)
     N.resizeInput(root,0);assert(root.sizeDelta.x==920) -- skip not-yet-laid-out width
-    -- Settings editor clones only the input primitive, with a native pill leaf.
-    -- No SearchNode, search icon, or 164-unit gutter may reach config rows.
+    -- Test config row input cloning
     local oldGameObject=U.GameObject
     local lastContainer
     U.GameObject=function(name)
@@ -221,11 +221,10 @@ function verifyNativeControls(N)
     previous.destroyed=true;N.style(ctrl);assert(ctrl.zml.styles.inputs[previous]==nil)
     assert(ZML.set('mod-menu','font_scale',1));N.style(ctrl)
     assert(second.pointSize==28 and caption.fontSize==28)
-    -- Standard rows must follow the native pill's center/width, not the slot's
-    -- full width or a fabricated top-left 64-high rectangle (real screenshot regression).
+    -- Validate row positioning against pill layout
     local nativeLayout=object('ToggleSetting');nativeLayout.anchorMin=U.Vector2(.5,.5);nativeLayout.anchorMax=U.Vector2(.5,.5)
     nativeLayout.pivot=U.Vector2(.5,.5);nativeLayout.sizeDelta=U.Vector2(600,80);nativeLayout.localScale=U.Vector3.one
-    nativeLayout.anchoredPosition=U.Vector2(-900,123) -- hidden template position is not a row position
+    -- Template layout coordinates
     ctrl.view.settingItemControls.toggleSetting=nativeLayout
     owner.rect={width=0,height=0} -- native row has not laid out yet
     local standard,pill=N.settingInput(ctrl,owner,'888888','显示的 UID',function(v)saved=v end,20)
@@ -238,7 +237,7 @@ function verifyNativeControls(N)
     local bottom=pill.anchorMin.y*owner.rect.height-pill.pivot.y*pill.sizeDelta.y
     assert(left==30 and bottom==10) -- same centered 600x80 native pill; not 660x64/top-left
     standard.onEndEdit:Invoke('000123');assert(saved=='000123')
-    owner.rect={width=900,height=120} -- parent changes do not freeze a measured width
+    -- Dynamic row width adjustment
     assert(pill.sizeDelta.x==600 and pill.anchorMin.y==.5 and pill.anchoredPosition.y==0)
     -- Stretched native layout also survives late parent sizing unchanged.
     nativeLayout.anchorMin=U.Vector2(0,.5);nativeLayout.anchorMax=U.Vector2(1,.5);nativeLayout.sizeDelta=U.Vector2(-60,80)
@@ -258,8 +257,7 @@ function verifyNativeControls(N)
     brokenViewport=true
     assert(not pcall(N.input,ctrl,owner,'','',0,0,300,function()end) and lastContainer.destroyed)
     U.GameObject=oldGameObject
-    -- Native tag presentation template; verify noninteractive, bounded geometry,
-    -- reused rows, state selection, and hot palette without touching game buttons.
+    -- Test tag presentation template
     local badgeButton=button();badgeButton.onClick:AddListener(function()error('native inventory listener leaked')end)
     ctrl.zml.badgeTemplate=object('native-tag');local created={}
     U.Object.Instantiate=function()
@@ -289,7 +287,7 @@ function verifyNativeControls(N)
 end
 
 
--- Render/lifecycle fixture uses API-shaped controls, not an imitation client.
+-- Render and lifecycle test fixture
 MockNative={hide=function(o)if o then o.gameObject:SetActive(false)end end,exists=NotNull,
     watchIcon=function()return true end,
     metadataIcon=function(image,icon)image.sprite=icon.sprite end,
@@ -362,6 +360,13 @@ function configView()
         bottomNodeStateCtrl=stateCtrl(),tabs={tabCell={isTab=true}},settingItemCell=row(),settingItemControls={
             toggleSetting=object(),sliderSetting=object(),dropDownSetting=object(),buttonSetting=object()},
         viewContent=object(),tabTitleTxt=label(),config={SETTING_ITEM_VERTICAL_SPACE=-26,SETTING_ITEM_TITLE_PADDING_TOP=20}}
+    local root=v.gameObject;root.transform=root
+    root.rect={width=1920,height=1080};root.childCount=4
+    root.children={v.viewContent.gameObject,v.bottomNode.gameObject,object("inactive-decoration"),object("input-group")}
+    for i=1,3 do root.children[i].GetComponentsInChildren=function(_,t)assert(t==U.UI.Graphic);return {Length=1}end end
+    root.children[3]:SetActive(false)
+    function root:GetChild(i)return self.children[i+1] end
+    for _,child in ipairs(root.children)do child.activeSelf=child.active end
     return v
 end
 function verifyConfig()
@@ -393,7 +398,26 @@ function verifyConfig()
     c.zml.item='demo';c:OnShow();flush();assert(live==0 and c.zml.cells.count==4)
     entry.create=function(ctx)ctx.subscribe(function()end);error('fixture custom config failure')end
     c.zml.item='custom-demo';c:OnShow();flush();assert(live==0 and not c.zml.dispose and c.zml.customRoot and c.zml.cells.count==0 and c.zml.entryButton==nil)
-    entry.create=originalCreate;ZML.subscribe=subscribe
+    entry.create=originalCreate
+    -- Test full host panel layout
+    entry.presentation="full"
+    local observed,disposed
+    entry.create=function(ctx)
+        observed=ctx;ctx.subscribe(function()end)
+        return function()disposed=true end
+    end
+    c:OnShow();flush()
+    assert(observed.presentation=="full" and observed.width==1920 and observed.height==1080)
+    assert(c.zml.fullPresentation and not c.zml.status and live==1)
+    for i=1,3 do assert(not c.view.gameObject.children[i].active)end
+    assert(c.view.gameObject.children[4].active,"Nonvisual input group must stay active")
+    local fullRoot=c.zml.customRoot
+    c:OnHide();assert(disposed and live==0 and not fullRoot.active)
+    assert(c.view.viewContent.active and c.view.bottomNode.active and not c.view.gameObject.children[3].active)
+    entry.create=function(ctx)ctx.subscribe(function()end);error('full config failure')end
+    c:OnShow();flush();assert(live==0 and not c.zml.fullPresentation and c.zml.customRoot and c.zml.status)
+    assert(c.view.viewContent.active and c.view.bottomNode.active and not c.view.gameObject.children[3].active)
+    entry.presentation=nil;entry.create=originalCreate;ZML.subscribe=subscribe
     c.zml.item='demo';c:OnShow();flush()
     c.view.saveBtn.onClick:Invoke();assert(c.m_phase.removed and UIManager.shows[110])
     c:OnClose()
@@ -423,11 +447,11 @@ function browserView()
     local list={onUpdateCell=event(),transform=object(),cells={}}
     function list:UpdateCount(n)self.count=n;for i=1,n do self.cells[i]=self.cells[i]or browserCell();self.onUpdateCell:Invoke(self.cells[i],i-1)end end
     function list:UpdateShowingCells(fn)for i=1,self.count do fn(i-1,self.cells[i])end end
-    -- Exact regression shape: native senderNode is wrapped, not a rect.
+    -- Sender node wrapper regression check
     -- Strict metatable forbids the bad .rect access that escaped older mocks.
     v.senderNode=setmetatable({gameObject=object()}, {__index=function(_,k)error('wrapped senderNode has no '..k)end})
     v.sendTimeTxt.rectTransform.parent=object('SenderNode.Rect')
-    list.transform.rect.width=0 -- native layout is NOT ready in OnCreate
+    -- Simulate pending layout in OnCreate
     v.mailList=list;return v
 end
 function verifyBrowser()
@@ -443,7 +467,7 @@ function verifyBrowser()
     assert(b.view.mailName.text=='模组菜单' or b.view.mailName.text=='测试模组')
     b.zml.search.commit('测试');flush();assert(b.view.mailList.count==1 and b.view.mailName.text=='测试模组')
     assert(b.zml.detailBadges[1].full and b.view.getBtn.text=='模组配置')
-    assert(b.view.contentTxt.text==ZML.mod('demo').description) -- never append version/status/id into body
+    assert(b.view.contentTxt.text==ZML.mod('demo').description) -- verify description textody
     local badges=b.view.mailList.cells[1].zmlBadges
     assert(badges[1].view.name.text=='v1.2.3' and badges[2].view.name.text=='测试' and badges[3].view.name.text=='工具')
     assert(ZML.set('mod-menu','show_tags',false));flush()

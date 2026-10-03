@@ -112,7 +112,7 @@ default=演示
 - string：原生 WikiSearch input；UTF-8 字节长度限制，拒绝 NUL／换行。UI 的 characterLimit 不替代原生字节校验。
 - label／description／default／restart：字段元数据。所有 persistable key 必须声明，即使使用自定义页面。
 
-未知／重复键、非法默认值或范围导致该 Mod 初始化失败。保存位置 `%LOCALAPPDATA%\ZML\mods/<id>/config.ini`。无效的已有保存字段单独回退默认值，不把坏数据执行成 Lua。单次字段保存原子替换；“恢复默认”是逐字段保存，不是多字段事务。
+未知／重复键、非法默认值或范围导致该 Mod 初始化失败。保存位置 `%LOCALAPPDATA%\EndfieldModLoader\mods/<id>/config.ini`。无效的已有保存字段单独回退默认值，不把坏数据执行成 Lua。单次字段保存原子替换；“恢复默认”是逐字段保存，不是多字段事务。
 
 ## 自定义复杂配置页面
 
