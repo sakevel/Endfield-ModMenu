@@ -59,9 +59,15 @@ try:
     lua.globals().verifyNativeIcons(realnative)
     # Invoke actual Mod rendering/config code with API-shaped UI fixtures.
     mocked=main.replace('__ZML_MODEL__','(function()\n'+model+'\nend)()').replace('__ZML_NATIVE__','function()return MockNative end')
+    lua.execute("local register=ZML.register_lifecycle;ZML.register_lifecycle=function(id,h)if id=='mod-menu' then MenuLifecycle=h end;return register(id,h)end")
     lua.execute(mocked)
     assert lua.globals().ZMLModMenu.state=='controller_loaded',lua.globals().ZMLModMenu.error
     lua.execute('mountMinimal(); verifyConfig(); verifyBrowser(); if ZML.mod("uid-mask") then verifyUidConfig() end')
+    lua.execute("""
+        UIManager.IsShow=function()return true end;assert(not MenuLifecycle.prepare(false))
+        UIManager.IsShow=function()return false end;assert(MenuLifecycle.prepare(false))
+        MenuLifecycle.changed(false);MenuLifecycle.changed(true)
+    """)
     print('PASS: assembled Lua54 syntax, live native services/API, model, native panel isolation/cache/style, config controls/save/reset/back, browser search/select/back')
 finally:
     server.stdin.close()

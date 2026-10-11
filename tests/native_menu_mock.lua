@@ -224,7 +224,8 @@ function verifyNativeControls(N)
     -- Validate row positioning against pill layout
     local nativeLayout=object('ToggleSetting');nativeLayout.anchorMin=U.Vector2(.5,.5);nativeLayout.anchorMax=U.Vector2(.5,.5)
     nativeLayout.pivot=U.Vector2(.5,.5);nativeLayout.sizeDelta=U.Vector2(600,80);nativeLayout.localScale=U.Vector3.one
-    -- Template layout coordinates
+    -- Template layout coordinates (explicit nonzero offset proves template remains untouched)
+    nativeLayout.anchoredPosition=U.Vector2(-900,0)
     ctrl.view.settingItemControls.toggleSetting=nativeLayout
     owner.rect={width=0,height=0} -- native row has not laid out yet
     local standard,pill=N.settingInput(ctrl,owner,'888888','显示的 UID',function(v)saved=v end,20)
@@ -380,7 +381,7 @@ function verifyConfig()
     assert(rows[1].itemControl.toggle.value==true)
     rows[1].itemControl.toggle.change(false);assert(ZML.get('demo').enabled=='false')
     rows[2].itemControl.slider.onValueChanged:Invoke(6);assert(ZML.get('demo').amount=='6')
-    assert(c.zml.status.text:find('重启'))
+    assert(c.zml.message:find('重启')) -- status node is created on the next native refresh, message is immediate
     rows[3].itemControl.dropdown.select(1);assert(ZML.get('demo').mode=='复杂')
     local input=c.inputs[#c.inputs];assert(input.kind=='standard-settings');input.commit('新的中文配置');assert(ZML.get('demo').caption=='新的中文配置')
     local oldInputs={table.unpack(c.zml.stringInputs)}
@@ -463,7 +464,7 @@ function verifyBrowser()
     assert(b.zml.searchRoot.width==920 and b.zml.search.kind=='search' and ZMLModMenu.state=='page_open')
     assert(b.view.zmlTitle=='模组菜单' and b.view.mailList.count==#ZML.mods() and b.view.getBtn.text=='模组配置')
     assert(b.headerCleared and not b.view.listCountText.active and not b.view.listTitleTxt.active)
-    assert(not b.view.sendTimeTxt.active and b.zml.detailBadges[2].view.name.text=='已加载')
+    assert(not b.view.sendTimeTxt.active and b.zml.detailBadges[2].view.name.text=='已激活')
     assert(b.view.mailName.text=='模组菜单' or b.view.mailName.text=='测试模组')
     b.zml.search.commit('测试');flush();assert(b.view.mailList.count==1 and b.view.mailName.text=='测试模组')
     assert(b.zml.detailBadges[1].full and b.view.getBtn.text=='模组配置')

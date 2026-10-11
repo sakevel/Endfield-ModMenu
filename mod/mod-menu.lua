@@ -62,7 +62,7 @@ do
             end
             openConfig = function(self, id)
                 local item = assert(api.mod(id), "Mod is not loaded")
-                if item.config_menu == "none" then return end
+                if item.config_menu == "none" or (api.is_enabled and not api.is_enabled(id)) then return end
                 Native.ensureAsset(mod.config)
                 self.m_phase:CreateOrShowPhasePanelItem(mod.config.id, { id = id })
                 report("config_open")
@@ -78,7 +78,7 @@ do
                 hide(v.sendTimeTxt)
                 -- Configure mail content layout
                 Native.label(v.contentTxt, item.description ~= "" and item.description or "此模组未提供简介。")
-                local configurable = item.config_menu ~= "none"
+                local configurable = item.config_menu ~= "none" and (not api.is_enabled or api.is_enabled(item.id))
                 v.getBtn.gameObject:SetActive(true)
                 Native.buttonLabel(v.getBtn, configurable and "模组配置" or "无配置菜单")
                 Native.bind(v.getBtn, function() openConfig(self, item.id) end, configurable)
@@ -87,7 +87,7 @@ do
                 local sender = v.sendTimeTxt.rectTransform.parent
                 Native.badges(self, s.detailBadges, sender, {
                     {text=item.version ~= "" and ("v" .. item.version) or "版本未声明", full=true},
-                    {text="已加载"}, {text=item.id}
+                    {text=item.enabled==false and "已停用" or "已激活"}, {text=item.id}
                 }, 0, 44, math.max(sender.rect.width, v.sendTimeTxt.rectTransform.rect.width), 32)
             end
             local function mailCell(self, object, index)
@@ -441,7 +441,21 @@ do
                 end
                 report("appearance_applied")
             end)
+            local watches=setmetatable({}, {__mode='k'})
+            if api.register_lifecycle then
+                api.register_lifecycle('mod-menu',{
+                    prepare=function() return not mod.active and not UIManager:IsShow(PanelId.Watch),'请先关闭模组菜单和 ESC 菜单' end,
+                    changed=function(on)
+                        for controller in pairs(watches) do
+                            local data=controller.m_btnData[93]
+                            if data then data.needHide=not on;data.view.gameObject:SetActive(on);controller:_RelayoutRightList();controller:_RefreshBtnLockState() end
+                        end
+                    end
+                })
+                api.subscribe_runtime(function() if mod.active and mod.active.panelId==mod.browser.id then refresh(mod.active,renderBrowser) end end)
+            end
             mod.mount = function(controller)
+                watches[controller]=true
                 local initialSize = controller.view.scrollViewContent.sizeDelta
                 local groupObject, attached = nil, false
                 local success, err = xpcall(function()
@@ -470,7 +484,7 @@ do
                     view.text.text = "模组菜单"
                     for _, key in ipairs({"lockIcon", "forbidIcon", "redDot"}) do hide(view[key]) end
                     if not Native.watchIcon(view, api.mod("mod-menu")) then report("button_icon_unavailable") end
-                    controller.m_btnData[93] = { view = view, phaseId = mod.phase, needRefreshUnlock = false, needShowRedDot = false }; attached = true
+                    controller.m_btnData[93] = { view = view, phaseId = mod.phase, needRefreshUnlock = false, needShowRedDot = false, needHide = api.is_enabled and not api.is_enabled("mod-menu") or false }; attached = true
                     controller.view.scrollViewContent.sizeDelta = U.Vector2(initialSize.x, initialSize.y + math.abs(dy) * parent.localScale.y)
                     report("button_attached")
                 end, debug.traceback)
